@@ -1,8 +1,31 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
-import { getTaskLocal, putTaskLocal, queue, type LocalTask, type Status, type TaskTag } from "../offline/db";
+import { getAllTasksLocal, getTaskLocal, putTaskLocal, queue, type LocalTask, type Status, type TaskTag } from "../offline/db";
 import { TAG_COLORS, asQueuedUpdate, isLocalId, normalizeTask } from "../tasks";
+
+const STATUS_OPTIONS: Status[] = ["Pendiente", "En Progreso", "Completada"];
+
+function tagKey(tag: TaskTag) {
+  return `${tag.name.trim().toLowerCase()}-${tag.color}`;
+}
+
+function getRecentTags(tasks: LocalTask[]) {
+  const seen = new Set<string>();
+  const list: TaskTag[] = [];
+
+  for (const task of tasks) {
+    for (const tag of task.tags) {
+      const key = tagKey(tag);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      list.push(tag);
+      if (list.length >= 8) return list;
+    }
+  }
+
+  return list;
+}
 
 export default function TaskEdit() {
   const { id = "" } = useParams();
@@ -17,10 +40,14 @@ export default function TaskEdit() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [recentTags, setRecentTags] = useState<TaskTag[]>([]);
 
   useEffect(() => {
     void (async () => {
       try {
+        const localTasks = await getAllTasksLocal();
+        setRecentTags(getRecentTags(localTasks.map(normalizeTask)));
+
         const local = await getTaskLocal(id);
         if (local) {
           const normalized = normalizeTask(local);
@@ -49,14 +76,23 @@ export default function TaskEdit() {
 
   function addTag() {
     const name = tagName.trim();
-    if (!name || tags.length >= 6) return;
+    if (!name || tags.length >= 6 || tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) return;
     setTags((current) => [...current, { name, color: tagColor }]);
     setTagName("");
+  }
+
+  function addRecentTag(tag: TaskTag) {
+    if (tags.length >= 6 || tags.some((item) => tagKey(item) === tagKey(tag))) return;
+    setTags((current) => [...current, tag]);
   }
 
   async function saveTask(e: React.FormEvent) {
     e.preventDefault();
     if (!task || !title.trim()) return;
+    if (task.status === "Completada") {
+      setMessage("Esta tarea ya fue completada y no se puede editar.");
+      return;
+    }
 
     const patched: LocalTask = {
       ...task,
@@ -90,7 +126,16 @@ export default function TaskEdit() {
         tags: patched.tags,
       });
       navigate("/dashboard");
-    } catch {
+    } catch (error) {
+      if ((error as { response?: { status?: number } }).response?.status === 409) {
+        await putTaskLocal(task);
+        setTitle(task.title);
+        setDescription(task.description ?? "");
+        setStatus(task.status);
+        setTags(task.tags);
+        setMessage("Esta tarea ya fue completada y no se puede editar.");
+        return;
+      }
       await queue(asQueuedUpdate(patched, {
         title: patched.title,
         description: patched.description,
@@ -102,6 +147,8 @@ export default function TaskEdit() {
       setSaving(false);
     }
   }
+
+  const taskCompleted = task?.status === "Completada";
 
   return (
     <div className="app-shell narrow-shell">
@@ -120,27 +167,28 @@ export default function TaskEdit() {
           <p className="empty">{message || "Tarea no encontrada"}</p>
         ) : (
           <form className="detail-form" onSubmit={saveTask}>
+            {taskCompleted && (
+              <p className="form-message">Esta tarea ya fue completada y queda bloqueada para edicion.</p>
+            )}
             <label>
               Titulo
-              <input value={title} onChange={(event) => setTitle(event.target.value)} required />
+              <input value={title} onChange={(event) => setTitle(event.target.value)} required disabled={taskCompleted} />
             </label>
             <label>
               Descripcion
-              <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={5} />
+              <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={5} disabled={taskCompleted} />
             </label>
             <label>
               Estado
-              <select value={status} onChange={(event) => setStatus(event.target.value as Status)}>
-                <option value="Pendiente">Pendiente</option>
-                <option value="En Progreso">En Progreso</option>
-                <option value="Completada">Completada</option>
+              <select value={status} onChange={(event) => setStatus(event.target.value as Status)} disabled={taskCompleted}>
+                {STATUS_OPTIONS.map((option) => <option value={option} key={option}>{option}</option>)}
               </select>
             </label>
 
-            <div className="tag-editor">
+            <div className="tag-editor" aria-disabled={taskCompleted}>
               <span className="label">Etiquetas</span>
               <div className="tag-builder">
-                <input value={tagName} onChange={(event) => setTagName(event.target.value)} placeholder="Nombre de etiqueta" />
+                <input value={tagName} onChange={(event) => setTagName(event.target.value)} placeholder="Nombre de etiqueta" disabled={taskCompleted} />
                 <div className="color-picker" aria-label="Color de etiqueta">
                   {TAG_COLORS.map((color) => (
                     <button
@@ -149,12 +197,32 @@ export default function TaskEdit() {
                       style={{ backgroundColor: color }}
                       type="button"
                       onClick={() => setTagColor(color)}
-                      aria-label={`Color ${color}`}
+                      aria-label="Seleccionar color de etiqueta"
+                      disabled={taskCompleted}
                     />
                   ))}
                 </div>
-                <button className="btn ghost" type="button" onClick={addTag}>Agregar</button>
+                <button className="btn ghost" type="button" onClick={addTag} disabled={taskCompleted}>Agregar</button>
               </div>
+              {recentTags.length > 0 && (
+                <div className="recent-tags" aria-label="Etiquetas recientes">
+                  <span className="label">Etiquetas recientes</span>
+                  <div className="recent-tag-list">
+                    {recentTags.map((tag) => (
+                      <button
+                        className="recent-tag"
+                        key={tagKey(tag)}
+                        type="button"
+                        onClick={() => addRecentTag(tag)}
+                        disabled={taskCompleted || tags.some((item) => tagKey(item) === tagKey(tag)) || tags.length >= 6}
+                      >
+                        <span className="tag-color-dot" style={{ backgroundColor: tag.color }} aria-hidden="true" />
+                        {tag.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="tag-list">
                 {tags.map((tag) => (
                   <button
@@ -163,6 +231,7 @@ export default function TaskEdit() {
                     style={{ backgroundColor: tag.color }}
                     type="button"
                     onClick={() => setTags((current) => current.filter((item) => item !== tag))}
+                    disabled={taskCompleted}
                   >
                     {tag.name}
                   </button>
@@ -172,7 +241,7 @@ export default function TaskEdit() {
 
             {message && <p className="form-message">{message}</p>}
             <div className="button-row">
-              <button className="btn primary" type="submit" disabled={saving}>
+              <button className="btn primary" type="submit" disabled={saving || taskCompleted}>
                 {saving ? "Guardando" : "Guardar cambios"}
               </button>
               <Link className="btn ghost" to="/dashboard">Cancelar</Link>

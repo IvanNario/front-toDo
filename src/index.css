@@ -62,10 +62,23 @@ select {
   box-shadow: inset 5px 5px 10px rgba(99, 91, 79, .13), inset -5px -5px 10px rgba(255, 255, 255, .94);
 }
 
+select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--green) 50%), linear-gradient(135deg, var(--green) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-repeat: no-repeat;
+  background-size: 5px 5px, 5px 5px;
+  padding-right: 34px;
+}
+
 input,
 select {
   min-height: 46px;
   padding: 0 14px;
+}
+
+select {
+  padding-right: 34px;
 }
 
 textarea {
@@ -116,6 +129,14 @@ select:focus {
   transform: none;
 }
 
+input:disabled,
+textarea:disabled,
+select:disabled,
+button:disabled {
+  cursor: not-allowed;
+  opacity: .68;
+}
+
 .btn.primary {
   background: var(--orange);
   color: white;
@@ -162,7 +183,7 @@ select:focus {
 .stats-panel,
 .task-panel,
 .section-card,
-.reminder-panel {
+.notification-panel {
   border: 1px solid rgba(255, 255, 255, .46);
   border-radius: 24px;
   background: var(--surface);
@@ -183,7 +204,7 @@ select:focus {
 .profile-preview h2,
 .section-card h2,
 .profile-copy h2,
-.reminder-panel h2 {
+.notification-panel h2 {
   margin: 0;
 }
 
@@ -199,7 +220,7 @@ select:focus {
 .profile-copy p,
 .task-content p,
 .profile-preview p,
-.reminder-panel p {
+.notification-panel p {
   color: var(--muted);
 }
 
@@ -351,7 +372,7 @@ select:focus {
 .profile-panel,
 .task-panel,
 .section-card,
-.reminder-panel {
+.notification-panel {
   padding: 22px;
 }
 
@@ -444,13 +465,21 @@ select:focus {
   line-height: 1;
 }
 
-.reminder-panel {
+.notification-panel {
   display: grid;
   grid-column: 1 / -1;
   gap: 14px;
 }
 
-.reminder-panel ul {
+.panel-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notification-list {
   display: grid;
   gap: 10px;
   margin: 0;
@@ -458,7 +487,7 @@ select:focus {
   list-style: none;
 }
 
-.reminder-panel li {
+.notification-list li {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -470,7 +499,22 @@ select:focus {
   box-shadow: inset 4px 4px 8px rgba(99, 91, 79, .10), inset -4px -4px 8px rgba(255, 255, 255, .9);
 }
 
-.reminder-panel li span {
+.notification-list li div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.notification-list li strong,
+.notification-list li small {
+  overflow-wrap: anywhere;
+}
+
+.notification-list li small {
+  color: var(--muted);
+}
+
+.notification-list li span {
   color: var(--orange);
   font-weight: 900;
 }
@@ -515,6 +559,42 @@ select:focus {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+}
+
+.recent-tags {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 8px;
+}
+
+.recent-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recent-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--green);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 4px 4px 9px var(--shadow-dark), -4px -4px 9px var(--shadow-light);
+}
+
+.tag-color-dot {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  box-shadow: inset 1px 1px 2px rgba(0, 0, 0, .18);
 }
 
 .color-picker {
@@ -596,13 +676,50 @@ select:focus {
 
 .task-item {
   display: grid;
-  grid-template-columns: minmax(140px, 170px) minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) auto;
+  align-items: start;
   gap: 14px;
   border-radius: 20px;
   padding: 14px;
   background: var(--surface);
   box-shadow: inset 4px 4px 8px rgba(99, 91, 79, .10), inset -4px -4px 8px rgba(255, 255, 255, .9);
+}
+
+.status-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+  border-radius: 18px;
+  padding: 6px;
+  background: var(--surface);
+  box-shadow: inset 4px 4px 8px rgba(99, 91, 79, .12), inset -4px -4px 8px rgba(255, 255, 255, .92);
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  min-width: 0;
+  border-radius: 14px;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--green);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.status-chip.active {
+  background: var(--orange);
+  color: white;
+  box-shadow: 4px 4px 8px rgba(255, 114, 31, .22), -4px -4px 8px rgba(255, 255, 255, .82);
+}
+
+.status-chip:disabled {
+  opacity: 1;
 }
 
 .task-item.done .task-content strong {
@@ -622,6 +739,20 @@ select:focus {
 .actions {
   justify-content: flex-end;
   min-width: 0;
+}
+
+.task-locked {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #eef7f1;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.action-lock {
+  align-self: center;
 }
 
 .empty {
@@ -717,7 +848,6 @@ select:focus {
 
   .dashboard-grid,
   .profile-grid,
-  .stats-panel,
   .task-form,
   .task-item,
   .toolbar,
@@ -727,6 +857,7 @@ select:focus {
 
   .stats-panel {
     grid-column: 1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .task-form > .btn,
@@ -735,8 +866,8 @@ select:focus {
     grid-row: auto;
   }
 
-  .actions .btn {
-    flex: 1 1 120px;
+  .actions {
+    justify-content: flex-start;
   }
 }
 
@@ -749,7 +880,7 @@ select:focus {
   .section-card,
   .profile-panel,
   .task-panel,
-  .reminder-panel {
+  .notification-panel {
     border-radius: 18px;
   }
 
@@ -764,8 +895,9 @@ select:focus {
   }
 
   .filters,
-  .actions {
-    flex-direction: column;
+  .actions,
+  .status-control {
+    width: 100%;
   }
 
   .welcome-banner {
