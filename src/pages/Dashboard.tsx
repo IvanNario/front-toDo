@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, setAuth } from "../api";
 import {
@@ -13,6 +13,12 @@ import {
   type TaskTag,
 } from "../offline/db";
 import { syncNow } from "../offline/sync";
+import {
+  getCurrentPushSubscription,
+  isPushSupported,
+  sendTestPushNotification,
+  subscribeToPushNotifications,
+} from "../push";
 import { TAG_COLORS, asQueuedUpdate, isLocalId, normalizeTask, now } from "../tasks";
 
 type Filter = "all" | "active" | "completed";
@@ -33,12 +39,12 @@ function tagKey(tag: TaskTag) {
   return `${tag.name.trim().toLowerCase()}-${tag.color}`;
 }
 
-function formatTaskAge(createdAt?: string) {
+function formatTaskAge(createdAt: string | undefined, referenceTime: number) {
   if (!createdAt) return "Sin fecha registrada";
   const created = new Date(createdAt).getTime();
   if (Number.isNaN(created)) return "Sin fecha registrada";
 
-  const diff = Math.max(0, Date.now() - created);
+  const diff = Math.max(0, referenceTime - created);
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return "Creada hace unos segundos";
   if (minutes < 60) return `Creada hace ${minutes} min`;
@@ -78,7 +84,8 @@ export default function Dashboard() {
   const [notificationsEnabled, setNotificationsEnabled] = useState(
     () => typeof Notification !== "undefined" && Notification.permission === "granted"
   );
-  const notifiedTasks = useRef<Set<string>>(new Set());
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushMessage, setPushMessage] = useState("");
 
   const loadFromServer = useCallback(async () => {
     try {
@@ -131,6 +138,18 @@ export default function Dashboard() {
     return () => window.clearInterval(interval);
   }, []);
 
+  useEffect(() => {
+    if (!isPushSupported()) return;
+
+    void getCurrentPushSubscription()
+      .then((subscription) => {
+        setNotificationsEnabled(Notification.permission === "granted" && !!subscription);
+      })
+      .catch(() => {
+        setNotificationsEnabled(false);
+      });
+  }, []);
+
   function addTag() {
     const name = tagName.trim();
     if (!name || tags.length >= 6 || tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) return;
@@ -144,9 +163,20 @@ export default function Dashboard() {
   }
 
   async function enableNotifications() {
-    if (typeof Notification === "undefined") return;
-    const permission = await Notification.requestPermission();
-    setNotificationsEnabled(permission === "granted");
+    setPushBusy(true);
+    setPushMessage("");
+
+    try {
+      await subscribeToPushNotifications();
+      setNotificationsEnabled(true);
+      setPushMessage("Avisos push activados en este dispositivo.");
+      await sendTestPushNotification();
+    } catch (error) {
+      setNotificationsEnabled(false);
+      setPushMessage(error instanceof Error ? error.message : "No se pudieron activar los avisos push.");
+    } finally {
+      setPushBusy(false);
+    }
   }
 
   async function addTask(e: React.FormEvent) {
@@ -333,20 +363,6 @@ export default function Dashboard() {
       .slice(0, 3);
   }, [tasks]);
 
-  useEffect(() => {
-    if (!notificationsEnabled || typeof Notification === "undefined") return;
-
-    const nextTask = oldestTasks[0];
-    if (!nextTask || notifiedTasks.current.has(nextTask._id)) return;
-
-    notifiedTasks.current.add(nextTask._id);
-    new Notification("Tarea antigua pendiente", {
-      body: `${nextTask.title} - ${nextTask.status}`,
-      icon: "/icon-192.png",
-      tag: `old-task-${nextTask._id}`,
-    });
-  }, [clockTick, notificationsEnabled, oldestTasks]);
-
   return (
     <div className="app-shell">
       {showWelcome && (
@@ -404,12 +420,13 @@ export default function Dashboard() {
               <span className="label">Notificaciones</span>
               <h2>Tareas por priorizar</h2>
             </div>
-            {typeof Notification !== "undefined" && (
-              <button className="btn compact ghost" type="button" onClick={enableNotifications}>
-                {notificationsEnabled ? "Avisos activos" : "Activar avisos"}
+            {isPushSupported() && (
+              <button className="btn compact ghost" type="button" onClick={enableNotifications} disabled={pushBusy}>
+                {pushBusy ? "Activando" : notificationsEnabled ? "Avisos activos" : "Activar avisos"}
               </button>
             )}
           </div>
+          {pushMessage && <p className="push-message">{pushMessage}</p>}
           {oldestTasks.length === 0 ? (
             <p>Todas las tareas activas estan al dia.</p>
           ) : (
@@ -418,7 +435,7 @@ export default function Dashboard() {
                 <li key={task._id}>
                   <div>
                     <strong>{task.title}</strong>
-                    <small>{formatTaskAge(task.createdAt)}</small>
+                    <small>{formatTaskAge(task.createdAt, clockTick)}</small>
                   </div>
                   <span>{task.status}</span>
                 </li>

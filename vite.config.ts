@@ -7,6 +7,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       injectRegister: 'auto',
       registerType: 'autoUpdate',
       includeAssets: ['icon-192.png', 'icon-512.png', 'apple-touch-icon.png'],
@@ -36,11 +39,13 @@ export default defineConfig({
           }
         ]
       },
-      workbox: {
-        navigateFallback: '/index.html'
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,png,webmanifest}']
       },
       devOptions: {
         enabled: true,
+        type: 'module',
+        navigateFallback: 'index.html',
       }
     }),
   ],

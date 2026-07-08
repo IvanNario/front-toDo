@@ -519,6 +519,17 @@ button:disabled {
   font-weight: 900;
 }
 
+.push-message {
+  margin: 0;
+  border-radius: 16px;
+  padding: 10px 12px;
+  background: #eef7f1;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 800;
+  box-shadow: inset 4px 4px 8px rgba(99, 91, 79, .10), inset -4px -4px 8px rgba(255, 255, 255, .9);
+}
+
 .task-panel {
   display: grid;
   grid-column: 1 / -1;
