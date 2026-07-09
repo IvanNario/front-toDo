@@ -6,19 +6,46 @@ export type TaskTag = {
     color: string;
 };
 
+export type TaskPermission = "owner" | "view" | "edit";
+export type TaskType = "individual" | "group";
+export type TaskUser = {
+    _id?: string;
+    id?: string;
+    name?: string;
+    email?: string;
+    photoUrl?: string;
+};
+export type TaskCollaborator = {
+    user: TaskUser | string;
+    permission: "view" | "edit";
+    joinedAt?: string;
+};
+
 export type LocalTask = {
     _id: string;
     title: string;
     description?: string;
     status: Status;
     tags: TaskTag[];
+    type: TaskType;
+    owner?: TaskUser | string;
+    userPermission?: TaskPermission | null;
+    canEdit?: boolean;
+    canManage?: boolean;
+    collaborators: TaskCollaborator[];
+    invite?: {
+        token?: string;
+        permission?: "view" | "edit";
+        active?: boolean;
+        createdAt?: string;
+    };
     clienteId?: string;
     createdAt?: string;
     deleted?: boolean;
     pending?: boolean;
 };
 
-type TaskData = Partial<Pick<LocalTask, "title" | "description" | "status" | "tags">>;
+type TaskData = Partial<Pick<LocalTask, "title" | "description" | "status" | "tags" | "type">>;
 
 export type OutboxOp = 
     | {id: string; op: "create"; clienteId: string; data: LocalTask; ts: number}

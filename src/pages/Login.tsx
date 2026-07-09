@@ -22,7 +22,13 @@ export default function Login() {
             localStorage.setItem("token", data.token);
             sessionStorage.setItem("showWelcome", "1");
             setAuth(data.token);
-            nav("/dashboard");
+            const pendingInvitePath = sessionStorage.getItem("pendingInvitePath");
+            if (pendingInvitePath) {
+                sessionStorage.removeItem("pendingInvitePath");
+                nav(pendingInvitePath);
+            } else {
+                nav("/dashboard");
+            }
         }catch (err: unknown) {
             const message = axios.isAxiosError(err)
                 ? err.response?.data?.message

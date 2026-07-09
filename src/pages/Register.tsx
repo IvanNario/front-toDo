@@ -20,7 +20,13 @@ export default function Register() {
             const {data} = await api.post("/auth/register", {name, email, password});
             localStorage.setItem("token", data.token);
             setAuth(data.token);
-            nav("/dashboard");
+            const pendingInvitePath = sessionStorage.getItem("pendingInvitePath");
+            if (pendingInvitePath) {
+                sessionStorage.removeItem("pendingInvitePath");
+                nav(pendingInvitePath);
+            } else {
+                nav("/dashboard");
+            }
         }catch (err: unknown) {
             const message = axios.isAxiosError(err)
                 ? err.response?.data?.message

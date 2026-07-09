@@ -35,6 +35,7 @@ export async function syncNow() {
             description: string;
             status: Status;
             tags: Array<{name: string; color: string}>;
+            type?: "individual" | "group";
         }> = [];
         for(const op of ops) {
             if(op.op === "create") {
@@ -44,6 +45,7 @@ export async function syncNow() {
                     description: op.data.description ?? "",
                     status: op.data.status ?? "Pendiente",
                     tags: op.data.tags,
+                    type: op.data.type,
                 });
             }else if (op.op === "update") {
                 // Para las actualizaciones, necesitamos el serverId para poder actualizar la tarea correcta en el servidor. Si no lo tenemos, es que la tarea aún no se ha creado en el servidor, así que la tratamos como una creación.
@@ -55,6 +57,7 @@ export async function syncNow() {
                         description: op.data.description ?? "",
                         status: op.data.status ?? "Pendiente",
                         tags: op.data.tags ?? [],
+                        type: op.data.type,
                     });
             } else if (op.serverId) {
                 try {

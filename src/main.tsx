@@ -10,6 +10,7 @@ import {
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard.tsx";
+import JoinTask from "./pages/JoinTask";
 import Profile from "./pages/Profile";
 import TaskEdit from "./pages/TaskEdit";
 import ProtectedRoute from "./routes/ProtectedRoute";
@@ -44,6 +45,14 @@ ReactDom.createRoot(document.getElementById("root")!).render(
           element={
             <ProtectedRoute>
               <TaskEdit />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/join/:token"
+          element={
+            <ProtectedRoute>
+              <JoinTask />
             </ProtectedRoute>
           }
         />

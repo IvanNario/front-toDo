@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import QRCode from "qrcode";
 import { api, setAuth } from "../api";
 import {
   cacheTasks,
@@ -11,6 +12,7 @@ import {
   type LocalTask,
   type Status,
   type TaskTag,
+  type TaskType,
 } from "../offline/db";
 import { syncNow } from "../offline/sync";
 import {
@@ -70,6 +72,7 @@ export default function Dashboard() {
   const [tasks, setTasks] = useState<LocalTask[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [taskType, setTaskType] = useState<TaskType>("individual");
   const [tags, setTags] = useState<TaskTag[]>([]);
   const [tagName, setTagName] = useState("");
   const [tagColor, setTagColor] = useState(TAG_COLORS[0]);
@@ -86,6 +89,11 @@ export default function Dashboard() {
   );
   const [pushBusy, setPushBusy] = useState(false);
   const [pushMessage, setPushMessage] = useState("");
+  const [shareTask, setShareTask] = useState<LocalTask | null>(null);
+  const [sharePermission, setSharePermission] = useState<"view" | "edit">("view");
+  const [shareUrl, setShareUrl] = useState("");
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [shareMessage, setShareMessage] = useState("");
 
   const loadFromServer = useCallback(async () => {
     try {
@@ -137,6 +145,13 @@ export default function Dashboard() {
     const interval = window.setInterval(() => setClockTick(Date.now()), 30000);
     return () => window.clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (navigator.onLine) void loadFromServer();
+    }, 8000);
+    return () => window.clearInterval(interval);
+  }, [loadFromServer]);
 
   useEffect(() => {
     if (!isPushSupported()) return;
@@ -191,6 +206,7 @@ export default function Dashboard() {
       title: trimmedTitle,
       description: trimmedDescription,
       status: "Pendiente",
+      type: taskType,
       tags,
       pending: true,
     });
@@ -199,6 +215,7 @@ export default function Dashboard() {
     await putTaskLocal(localTask);
     setTitle("");
     setDescription("");
+    setTaskType("individual");
     setTags([]);
 
     if (!navigator.onLine) {
@@ -216,6 +233,7 @@ export default function Dashboard() {
       const { data } = await api.post("/tasks", {
         title: trimmedTitle,
         description: trimmedDescription,
+        type: taskType,
         tags,
       });
       const created = normalizeTask(data?.task ?? data);
@@ -234,7 +252,7 @@ export default function Dashboard() {
   }
 
   async function handleStatusChange(task: LocalTask, status: Status) {
-    if (task.status === "Completada") return;
+    if (task.status === "Completada" || !task.canEdit) return;
 
     const updated: LocalTask = {
       ...task,
@@ -262,6 +280,8 @@ export default function Dashboard() {
   }
 
   async function removeTask(task: LocalTask) {
+    if (!task.canManage) return;
+
     const backup = tasks;
     setTasks((prev) => prev.filter((item) => item._id !== task._id));
     await removeTaskLocal(task._id);
@@ -306,6 +326,30 @@ export default function Dashboard() {
   function closeWelcome() {
     sessionStorage.removeItem("showWelcome");
     setShowWelcome(false);
+  }
+
+  async function openShare(task: LocalTask) {
+    setShareTask(task);
+    setSharePermission(task.invite?.permission ?? "view");
+    setShareUrl("");
+    setQrDataUrl("");
+    setShareMessage("");
+  }
+
+  async function generateInvite() {
+    if (!shareTask) return;
+    setShareMessage("");
+
+    try {
+      const { data } = await api.post(`/tasks/${shareTask._id}/invite`, { permission: sharePermission });
+      const token = String(data?.token ?? "");
+      const url = `${window.location.origin}/join/${token}`;
+      setShareUrl(url);
+      setQrDataUrl(await QRCode.toDataURL(url, { margin: 2, width: 220, color: { dark: "#345b45", light: "#ffffff" } }));
+      await loadFromServer();
+    } catch (error) {
+      setShareMessage((error as { response?: { data?: { message?: string } } }).response?.data?.message ?? "No se pudo generar el QR.");
+    }
   }
 
   const filtered = useMemo(() => {
@@ -447,6 +491,10 @@ export default function Dashboard() {
         <section className="task-panel">
           <form className="task-form" onSubmit={addTask}>
             <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Nueva tarea" />
+            <select value={taskType} onChange={(event) => setTaskType(event.target.value as TaskType)} aria-label="Tipo de tarea">
+              <option value="individual">Individual</option>
+              <option value="group">Grupo</option>
+            </select>
             <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Descripcion opcional" rows={2} />
             <div className="tag-builder">
               <input value={tagName} onChange={(event) => setTagName(event.target.value)} placeholder="Etiqueta" />
@@ -539,6 +587,10 @@ export default function Dashboard() {
                     <div className="task-content">
                       <strong>{task.title}</strong>
                       {task.description && <p>{task.description}</p>}
+                      <div className="task-meta">
+                        <span>{task.type === "group" ? "Grupal" : "Individual"}</span>
+                        <span>{task.userPermission === "owner" ? "Dueño" : task.userPermission === "edit" ? "Puede editar" : "Solo lectura"}</span>
+                      </div>
                       {task.tags.length > 0 && (
                         <div className="tag-list">
                           {task.tags.map((tag) => <span className="tag-pill" style={{ backgroundColor: tag.color }} key={tag.name + tag.color}>{tag.name}</span>)}
@@ -552,9 +604,14 @@ export default function Dashboard() {
                       {completed ? (
                         <span className="task-locked action-lock">Sin edición</span>
                       ) : (
-                        <Link className="btn compact ghost" to={`/tasks/${task._id}/edit`}>Editar</Link>
+                        <>
+                          {task.canEdit && <Link className="btn compact ghost" to={`/tasks/${task._id}/edit`}>Editar</Link>}
+                          {task.canManage && (
+                            <button className="btn compact ghost" type="button" onClick={() => openShare(task)}>QR</button>
+                          )}
+                        </>
                       )}
-                      <button className="btn compact danger" type="button" onClick={() => removeTask(task)}>Eliminar</button>
+                      {task.canManage && <button className="btn compact danger" type="button" onClick={() => removeTask(task)}>Eliminar</button>}
                     </div>
                   </li>
                 );
@@ -563,6 +620,39 @@ export default function Dashboard() {
           )}
         </section>
       </main>
+      {shareTask && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Compartir tarea">
+          <section className="share-modal">
+            <div className="panel-heading">
+              <div>
+                <span className="label">Compartir QR</span>
+                <h2>{shareTask.title}</h2>
+              </div>
+              <button className="welcome-close" type="button" onClick={() => setShareTask(null)} aria-label="Cerrar">
+                ×
+              </button>
+            </div>
+
+            <label className="permission-field">
+              Permiso para quien escanee
+              <select value={sharePermission} onChange={(event) => setSharePermission(event.target.value as "view" | "edit")}>
+                <option value="view">Solo visualizar</option>
+                <option value="edit">Visualizar y editar</option>
+              </select>
+            </label>
+
+            <button className="btn primary" type="button" onClick={generateInvite}>Generar QR</button>
+            {shareMessage && <p className="form-message">{shareMessage}</p>}
+
+            {qrDataUrl && (
+              <div className="qr-box">
+                <img src={qrDataUrl} alt="QR para unirse a la tarea" />
+                <input value={shareUrl} readOnly aria-label="Enlace de invitacion" />
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   );
 }
