@@ -2,10 +2,27 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import QRCode from "qrcode";
 import { api } from "../api";
+import ConfirmPanel from "../components/ConfirmPanel";
 import { getAllTasksLocal, getTaskLocal, putTaskLocal, queue, type LocalTask, type Status, type TaskTag, type TaskType } from "../offline/db";
-import { TAG_COLORS, asQueuedUpdate, isLocalId, normalizeTask } from "../tasks";
+import {
+  DEFAULT_TAG_COLOR,
+  TASK_LIMITS,
+  asQueuedUpdate,
+  cleanTaskText,
+  isLocalId,
+  normalizeTagColor,
+  normalizeTask,
+  validateTaskDraft,
+} from "../tasks";
 
 const STATUS_OPTIONS: Status[] = ["Pendiente", "En Progreso", "Completada"];
+type ConfirmState = {
+  title: string;
+  message: string;
+  confirmText: string;
+  tone?: "danger" | "neutral";
+  onConfirm: () => void | Promise<void>;
+};
 
 function tagKey(tag: TaskTag) {
   return `${tag.name.trim().toLowerCase()}-${tag.color}`;
@@ -46,7 +63,7 @@ export default function TaskEdit() {
   const [taskType, setTaskType] = useState<TaskType>("individual");
   const [tags, setTags] = useState<TaskTag[]>([]);
   const [tagName, setTagName] = useState("");
-  const [tagColor, setTagColor] = useState(TAG_COLORS[0]);
+  const [tagColor, setTagColor] = useState(DEFAULT_TAG_COLOR);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -54,6 +71,8 @@ export default function TaskEdit() {
   const [sharePermission, setSharePermission] = useState<"view" | "edit">("view");
   const [shareUrl, setShareUrl] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -92,9 +111,25 @@ export default function TaskEdit() {
   }, [id]);
 
   function addTag() {
-    const name = tagName.trim();
-    if (!name || tags.length >= 6 || tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) return;
-    setTags((current) => [...current, { name, color: tagColor }]);
+    const name = cleanTaskText(tagName, TASK_LIMITS.tagNameMax);
+    setMessage("");
+
+    if (name.length < TASK_LIMITS.tagNameMin) {
+      setMessage(`La etiqueta debe tener al menos ${TASK_LIMITS.tagNameMin} caracteres.`);
+      return;
+    }
+
+    if (tags.length >= TASK_LIMITS.tagsMax) {
+      setMessage(`Solo puedes agregar hasta ${TASK_LIMITS.tagsMax} etiquetas.`);
+      return;
+    }
+
+    if (tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) {
+      setMessage("Esa etiqueta ya esta agregada.");
+      return;
+    }
+
+    setTags((current) => [...current, { name, color: normalizeTagColor(tagColor) }]);
     setTagName("");
   }
 
@@ -105,19 +140,32 @@ export default function TaskEdit() {
 
   async function saveTask(e: React.FormEvent) {
     e.preventDefault();
-    if (!task || !title.trim()) return;
+    if (!task) return;
     if (!task.canEdit || task.status === "Completada") {
       setMessage("Esta tarea no se puede editar con tus permisos actuales.");
       return;
     }
 
+    const cleanTitle = cleanTaskText(title, TASK_LIMITS.titleMax);
+    const cleanDescription = cleanTaskText(description, TASK_LIMITS.descriptionMax);
+    const cleanTags = tags.map((tag) => ({
+      name: cleanTaskText(tag.name, TASK_LIMITS.tagNameMax),
+      color: normalizeTagColor(tag.color),
+    }));
+    const validation = validateTaskDraft(cleanTitle, cleanDescription, cleanTags);
+
+    if (validation) {
+      setMessage(validation);
+      return;
+    }
+
     const patched: LocalTask = {
       ...task,
-      title: title.trim(),
-      description: description.trim(),
+      title: cleanTitle,
+      description: cleanDescription,
       status,
       type: taskType,
-      tags,
+      tags: cleanTags,
       pending: isLocalId(task._id) || task.pending,
     };
 
@@ -195,7 +243,7 @@ export default function TaskEdit() {
       const token = String(data?.token ?? "");
       const url = `${window.location.origin}/join/${token}`;
       setShareUrl(url);
-      setQrDataUrl(await QRCode.toDataURL(url, { margin: 2, width: 220, color: { dark: "#345b45", light: "#ffffff" } }));
+      setQrDataUrl(await QRCode.toDataURL(url, { margin: 2, width: 220, color: { dark: "#000000", light: "#f2f2f2" } }));
       await refreshTask();
     } catch (error) {
       setMessage((error as { response?: { data?: { message?: string } } }).response?.data?.message ?? "No se pudo generar el QR.");
@@ -212,6 +260,29 @@ export default function TaskEdit() {
     if (!task) return;
     await api.delete(`/tasks/${task._id}/collaborators/${userId}`);
     await refreshTask();
+  }
+
+  function askDeleteCollaborator(userId: string, name: string) {
+    setConfirm({
+      title: "Quitar colaborador",
+      message: `${name} dejara de ver esta tarea compartida.`,
+      confirmText: "Quitar",
+      tone: "danger",
+      onConfirm: () => deleteCollaborator(userId),
+    });
+  }
+
+  async function runConfirm() {
+    if (!confirm) return;
+    setConfirmBusy(true);
+    try {
+      await confirm.onConfirm();
+      setConfirm(null);
+    } catch {
+      setMessage("No se pudo completar la accion. Revisa tu conexion e intenta de nuevo.");
+    } finally {
+      setConfirmBusy(false);
+    }
   }
 
   useEffect(() => {
@@ -247,7 +318,7 @@ export default function TaskEdit() {
 
       <main className="section-card">
         {loading ? (
-          <p className="empty">Cargando tarea...</p>
+          <p className="empty loading-state">Cargando tarea...</p>
         ) : !task ? (
           <p className="empty">{message || "Tarea no encontrada"}</p>
         ) : (
@@ -259,11 +330,11 @@ export default function TaskEdit() {
             )}
             <label>
               Titulo
-              <input value={title} onChange={(event) => setTitle(event.target.value)} required disabled={!canEditTask} />
+              <input value={title} onChange={(event) => setTitle(event.target.value)} minLength={TASK_LIMITS.titleMin} maxLength={TASK_LIMITS.titleMax} required disabled={!canEditTask} />
             </label>
             <label>
               Descripcion
-              <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={5} disabled={!canEditTask} />
+              <textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={5} maxLength={TASK_LIMITS.descriptionMax} disabled={!canEditTask} />
             </label>
             <label>
               Tipo
@@ -282,19 +353,17 @@ export default function TaskEdit() {
             <div className="tag-editor" aria-disabled={!canEditTask}>
               <span className="label">Etiquetas</span>
               <div className="tag-builder">
-                <input value={tagName} onChange={(event) => setTagName(event.target.value)} placeholder="Nombre de etiqueta" disabled={!canEditTask} />
+                <input value={tagName} onChange={(event) => setTagName(event.target.value)} placeholder="Nombre de etiqueta" maxLength={TASK_LIMITS.tagNameMax} disabled={!canEditTask} />
                 <div className="color-picker" aria-label="Color de etiqueta">
-                  {TAG_COLORS.map((color) => (
-                    <button
-                      className={tagColor === color ? "color-dot active" : "color-dot"}
-                      key={color}
-                      style={{ backgroundColor: color }}
-                      type="button"
-                      onClick={() => setTagColor(color)}
-                      aria-label="Seleccionar color de etiqueta"
-                      disabled={!canEditTask}
-                    />
-                  ))}
+                  <span className="color-preview" style={{ backgroundColor: normalizeTagColor(tagColor) }} aria-hidden="true" />
+                  <input
+                    className="color-input"
+                    type="color"
+                    value={normalizeTagColor(tagColor)}
+                    onChange={(event) => setTagColor(normalizeTagColor(event.target.value))}
+                    aria-label="Elegir color de etiqueta"
+                    disabled={!canEditTask}
+                  />
                 </div>
                 <button className="btn ghost" type="button" onClick={addTag} disabled={!canEditTask}>Agregar</button>
               </div>
@@ -371,7 +440,7 @@ export default function TaskEdit() {
                             <option value="view">Ver</option>
                             <option value="edit">Editar</option>
                           </select>
-                          <button className="btn compact danger" type="button" onClick={() => deleteCollaborator(userId)}>Quitar</button>
+                          <button className="btn compact danger" type="button" onClick={() => askDeleteCollaborator(userId, collaboratorName(collaborator.user))}>Quitar</button>
                         </article>
                       );
                     })}
@@ -388,6 +457,16 @@ export default function TaskEdit() {
           </form>
         )}
       </main>
+      <ConfirmPanel
+        open={!!confirm}
+        title={confirm?.title ?? ""}
+        message={confirm?.message ?? ""}
+        confirmText={confirm?.confirmText}
+        tone={confirm?.tone}
+        busy={confirmBusy}
+        onConfirm={runConfirm}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }

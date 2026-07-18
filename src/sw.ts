@@ -19,14 +19,14 @@ cleanupOutdatedCaches();
 
 self.addEventListener("push", (event) => {
   const payload: PushPayload = event.data?.json() ?? {};
-  const title = payload.title || "To-Do PWA";
+  const title = payload.title || "Organize";
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body: payload.body || "Tienes tareas pendientes por revisar.",
       icon: payload.icon || "/icon-192.png",
       badge: "/icon-192.png",
-      tag: payload.tag || "todo-reminder",
+      tag: payload.tag || "organize-reminder",
       data: {
         url: payload.url || "/dashboard",
       },

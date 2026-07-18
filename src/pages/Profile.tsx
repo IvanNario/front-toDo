@@ -23,6 +23,10 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
+function isStrongEnough(password: string) {
+  return password.length >= 8 && /[a-zA-Z]/.test(password) && /\d/.test(password);
+}
+
 export default function Profile() {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [name, setName] = useState("");
@@ -57,13 +61,14 @@ export default function Profile() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      setProfileMessage("Selecciona una imagen valida");
+    const allowedTypes = ["image/png", "image/jpeg", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      setProfileMessage("Selecciona una imagen PNG, JPG o WEBP");
       return;
     }
 
-    if (file.size > 180000) {
-      setProfileMessage("Usa una imagen menor a 180 KB");
+    if (file.size > 220000) {
+      setProfileMessage("Usa una imagen menor a 220 KB");
       return;
     }
 
@@ -78,7 +83,10 @@ export default function Profile() {
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
     const trimmedName = name.trim();
-    if (!trimmedName) return;
+    if (trimmedName.length < 2 || trimmedName.length > 60) {
+      setProfileMessage("El nombre debe tener entre 2 y 60 caracteres");
+      return;
+    }
 
     setSavingProfile(true);
     setProfileMessage("");
@@ -107,6 +115,11 @@ export default function Profile() {
   async function savePassword(e: React.FormEvent) {
     e.preventDefault();
     setPasswordMessage("");
+
+    if (!isStrongEnough(newPassword)) {
+      setPasswordMessage("La nueva contraseña debe tener al menos 8 caracteres, una letra y un numero");
+      return;
+    }
 
     if (newPassword !== confirmPassword) {
       setPasswordMessage("Las contraseñas no coinciden");
@@ -158,7 +171,7 @@ export default function Profile() {
           <form className="detail-form" onSubmit={saveProfile}>
             <label>
               Nombre
-              <input value={name} onChange={(event) => setName(event.target.value)} required />
+              <input value={name} onChange={(event) => setName(event.target.value)} minLength={2} maxLength={60} autoComplete="name" required />
             </label>
             <label>
               Foto personalizada
@@ -182,15 +195,15 @@ export default function Profile() {
           <form className="detail-form" onSubmit={savePassword}>
             <label>
               Contraseña actual
-              <input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+              <input type="password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" required />
             </label>
             <label>
               Nueva contraseña
-              <input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={6} required />
+              <input type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} minLength={8} autoComplete="new-password" required />
             </label>
             <label>
               Confirmar contraseña
-              <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={6} required />
+              <input type="password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} minLength={8} autoComplete="new-password" required />
             </label>
             {passwordMessage && <p className="form-message">{passwordMessage}</p>}
             <button className="btn primary" type="submit" disabled={savingPassword}>

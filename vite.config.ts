@@ -15,15 +15,15 @@ export default defineConfig({
       includeAssets: ['icon-192.png', 'icon-512.png', 'apple-touch-icon.png'],
       manifest: {
         id: '/',
-        name: 'To-Do PWA',
-        short_name: 'To-Do',
-        description: 'Organiza tus tareas y sincronizalas cuando vuelvas a estar online.',
+        name: 'Organize',
+        short_name: 'Organize',
+        description: 'Organiza tus tareas, prioridades, etiquetas y grupos desde cualquier dispositivo.',
         lang: 'es',
         start_url: '/',
         scope: '/',
         display: 'standalone',
-        background_color: '#f4f1eb',
-        theme_color: '#ff721f',
+        background_color: '#000000',
+        theme_color: '#000000',
         icons: [
           {
             src: '/icon-192.png',

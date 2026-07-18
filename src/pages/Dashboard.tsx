@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 import QRCode from "qrcode";
 import { api, setAuth } from "../api";
+import ConfirmPanel from "../components/ConfirmPanel";
 import {
   cacheTasks,
   getAllTasksLocal,
@@ -21,13 +22,30 @@ import {
   sendTestPushNotification,
   subscribeToPushNotifications,
 } from "../push";
-import { TAG_COLORS, asQueuedUpdate, isLocalId, normalizeTask, now } from "../tasks";
+import {
+  DEFAULT_TAG_COLOR,
+  TASK_LIMITS,
+  asQueuedUpdate,
+  cleanTaskText,
+  isLocalId,
+  normalizeTagColor,
+  normalizeTask,
+  now,
+  validateTaskDraft,
+} from "../tasks";
 
 type Filter = "all" | "active" | "completed";
 type UserProfile = {
   name: string;
   email: string;
   photoUrl: string;
+};
+type ConfirmState = {
+  title: string;
+  message: string;
+  confirmText: string;
+  tone?: "danger" | "neutral";
+  onConfirm: () => void | Promise<void>;
 };
 
 const STATUS_OPTIONS: Status[] = ["Pendiente", "En Progreso", "Completada"];
@@ -75,7 +93,8 @@ export default function Dashboard() {
   const [taskType, setTaskType] = useState<TaskType>("individual");
   const [tags, setTags] = useState<TaskTag[]>([]);
   const [tagName, setTagName] = useState("");
-  const [tagColor, setTagColor] = useState(TAG_COLORS[0]);
+  const [tagColor, setTagColor] = useState(DEFAULT_TAG_COLOR);
+  const [formMessage, setFormMessage] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [online, setOnline] = useState(navigator.onLine);
@@ -94,6 +113,8 @@ export default function Dashboard() {
   const [shareUrl, setShareUrl] = useState("");
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [shareMessage, setShareMessage] = useState("");
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   const loadFromServer = useCallback(async () => {
     try {
@@ -166,9 +187,25 @@ export default function Dashboard() {
   }, []);
 
   function addTag() {
-    const name = tagName.trim();
-    if (!name || tags.length >= 6 || tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) return;
-    setTags((current) => [...current, { name, color: tagColor }]);
+    const name = cleanTaskText(tagName, TASK_LIMITS.tagNameMax);
+    setFormMessage("");
+
+    if (name.length < TASK_LIMITS.tagNameMin) {
+      setFormMessage(`La etiqueta debe tener al menos ${TASK_LIMITS.tagNameMin} caracteres.`);
+      return;
+    }
+
+    if (tags.length >= TASK_LIMITS.tagsMax) {
+      setFormMessage(`Solo puedes agregar hasta ${TASK_LIMITS.tagsMax} etiquetas.`);
+      return;
+    }
+
+    if (tags.some((tag) => tag.name.toLowerCase() === name.toLowerCase())) {
+      setFormMessage("Esa etiqueta ya esta agregada.");
+      return;
+    }
+
+    setTags((current) => [...current, { name, color: normalizeTagColor(tagColor) }]);
     setTagName("");
   }
 
@@ -196,9 +233,20 @@ export default function Dashboard() {
 
   async function addTask(e: React.FormEvent) {
     e.preventDefault();
-    const trimmedTitle = title.trim();
-    const trimmedDescription = description.trim();
-    if (!trimmedTitle) return;
+    const trimmedTitle = cleanTaskText(title, TASK_LIMITS.titleMax);
+    const trimmedDescription = cleanTaskText(description, TASK_LIMITS.descriptionMax);
+    const cleanTags = tags.map((tag) => ({
+      name: cleanTaskText(tag.name, TASK_LIMITS.tagNameMax),
+      color: normalizeTagColor(tag.color),
+    }));
+    const validation = validateTaskDraft(trimmedTitle, trimmedDescription, cleanTags);
+
+    if (validation) {
+      setFormMessage(validation);
+      return;
+    }
+
+    setFormMessage("");
 
     const clienteId = crypto.randomUUID();
     const localTask = normalizeTask({
@@ -207,7 +255,7 @@ export default function Dashboard() {
       description: trimmedDescription,
       status: "Pendiente",
       type: taskType,
-      tags,
+      tags: cleanTags,
       pending: true,
     });
 
@@ -234,7 +282,7 @@ export default function Dashboard() {
         title: trimmedTitle,
         description: trimmedDescription,
         type: taskType,
-        tags,
+        tags: cleanTags,
       });
       const created = normalizeTask(data?.task ?? data);
       setTasks((prev) => prev.map((task) => (task._id === clienteId ? created : task)));
@@ -323,6 +371,39 @@ export default function Dashboard() {
     window.location.href = "/";
   }
 
+  function askLogout() {
+    setConfirm({
+      title: "Cerrar sesion",
+      message: "Se cerrara la sesion en este dispositivo. Tus tareas sincronizadas seguiran protegidas en tu cuenta.",
+      confirmText: "Salir",
+      tone: "neutral",
+      onConfirm: logout,
+    });
+  }
+
+  function askRemoveTask(task: LocalTask) {
+    setConfirm({
+      title: "Eliminar tarea",
+      message: `La tarea "${task.title}" se quitara de tu cuenta. Esta accion no modifica otras tareas.`,
+      confirmText: "Eliminar",
+      tone: "danger",
+      onConfirm: () => removeTask(task),
+    });
+  }
+
+  async function runConfirm() {
+    if (!confirm) return;
+    setConfirmBusy(true);
+    try {
+      await confirm.onConfirm();
+      setConfirm(null);
+    } catch {
+      setFormMessage("No se pudo completar la accion. Revisa tu conexion e intenta de nuevo.");
+    } finally {
+      setConfirmBusy(false);
+    }
+  }
+
   function closeWelcome() {
     sessionStorage.removeItem("showWelcome");
     setShowWelcome(false);
@@ -345,7 +426,7 @@ export default function Dashboard() {
       const token = String(data?.token ?? "");
       const url = `${window.location.origin}/join/${token}`;
       setShareUrl(url);
-      setQrDataUrl(await QRCode.toDataURL(url, { margin: 2, width: 220, color: { dark: "#345b45", light: "#ffffff" } }));
+      setQrDataUrl(await QRCode.toDataURL(url, { margin: 2, width: 220, color: { dark: "#000000", light: "#f2f2f2" } }));
       await loadFromServer();
     } catch (error) {
       setShareMessage((error as { response?: { data?: { message?: string } } }).response?.data?.message ?? "No se pudo generar el QR.");
@@ -423,14 +504,14 @@ export default function Dashboard() {
       <header className="topbar">
         <div>
           <p className="eyebrow">Panel de tareas</p>
-          <h1>To-Do PWA</h1>
+          <h1>Organize</h1>
         </div>
         <nav className="nav-actions">
           <Link className="btn ghost" to="/profile">Perfil</Link>
           <span className={online ? "connection online" : "connection offline"}>
             {online ? "Online" : "Offline"}
           </span>
-          <button className="btn danger subtle" type="button" onClick={logout}>
+          <button className="btn danger subtle" type="button" onClick={askLogout}>
             Salir
           </button>
         </nav>
@@ -490,28 +571,27 @@ export default function Dashboard() {
 
         <section className="task-panel">
           <form className="task-form" onSubmit={addTask}>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Nueva tarea" />
+            <input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Nueva tarea" minLength={TASK_LIMITS.titleMin} maxLength={TASK_LIMITS.titleMax} required />
             <select value={taskType} onChange={(event) => setTaskType(event.target.value as TaskType)} aria-label="Tipo de tarea">
               <option value="individual">Individual</option>
               <option value="group">Grupo</option>
             </select>
-            <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Descripcion opcional" rows={2} />
+            <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Descripcion opcional" rows={2} maxLength={TASK_LIMITS.descriptionMax} />
             <div className="tag-builder">
-              <input value={tagName} onChange={(event) => setTagName(event.target.value)} placeholder="Etiqueta" />
+              <input value={tagName} onChange={(event) => setTagName(event.target.value)} placeholder="Etiqueta" maxLength={TASK_LIMITS.tagNameMax} />
               <div className="color-picker" aria-label="Color de etiqueta">
-                {TAG_COLORS.map((color) => (
-                  <button
-                    className={tagColor === color ? "color-dot active" : "color-dot"}
-                    key={color}
-                    style={{ backgroundColor: color }}
-                    type="button"
-                    onClick={() => setTagColor(color)}
-                    aria-label="Seleccionar color de etiqueta"
-                  />
-                ))}
+                <span className="color-preview" style={{ backgroundColor: normalizeTagColor(tagColor) }} aria-hidden="true" />
+                <input
+                  className="color-input"
+                  type="color"
+                  value={normalizeTagColor(tagColor)}
+                  onChange={(event) => setTagColor(normalizeTagColor(event.target.value))}
+                  aria-label="Elegir color de etiqueta"
+                />
               </div>
               <button className="btn ghost" type="button" onClick={addTag}>Agregar etiqueta</button>
             </div>
+            {formMessage && <p className="form-message">{formMessage}</p>}
             {recentTags.length > 0 && (
               <div className="recent-tags" aria-label="Etiquetas recientes">
                 <span className="label">Etiquetas recientes</span>
@@ -559,7 +639,7 @@ export default function Dashboard() {
           </div>
 
           {loading ? (
-            <p className="empty">Cargando...</p>
+            <p className="empty loading-state">Cargando...</p>
           ) : filtered.length === 0 ? (
             <p className="empty">Sin tareas por ahora</p>
           ) : (
@@ -568,7 +648,11 @@ export default function Dashboard() {
                 const completed = task.status === "Completada";
 
                 return (
-                  <li key={task._id} className={completed ? "task-item done" : "task-item"}>
+                  <li
+                    key={task._id}
+                    className={completed ? "task-item done" : "task-item"}
+                    style={{ "--folder-color": normalizeTagColor(task.tags[0]?.color ?? DEFAULT_TAG_COLOR) } as CSSProperties}
+                  >
                     <div className="status-control" aria-label={`Estado de ${task.title}`}>
                       {STATUS_OPTIONS.map((option) => (
                         <button
@@ -611,7 +695,7 @@ export default function Dashboard() {
                           )}
                         </>
                       )}
-                      {task.canManage && <button className="btn compact danger" type="button" onClick={() => removeTask(task)}>Eliminar</button>}
+                      {task.canManage && !completed && <button className="btn compact danger" type="button" onClick={() => askRemoveTask(task)}>Eliminar</button>}
                     </div>
                   </li>
                 );
@@ -653,6 +737,16 @@ export default function Dashboard() {
           </section>
         </div>
       )}
+      <ConfirmPanel
+        open={!!confirm}
+        title={confirm?.title ?? ""}
+        message={confirm?.message ?? ""}
+        confirmText={confirm?.confirmText}
+        tone={confirm?.tone}
+        busy={confirmBusy}
+        onConfirm={runConfirm}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }

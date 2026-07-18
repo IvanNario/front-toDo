@@ -15,10 +15,17 @@ export default function Login() {
 
     async function onSubmit(e: React.FormEvent) {
         e.preventDefault();
+        const cleanEmail = email.trim().toLowerCase();
+
+        if (!cleanEmail || !password) {
+            setError("Ingresa tu correo y contraseña");
+            return;
+        }
+
         setError("");
         setLoading(true);
         try{
-            const {data} = await api.post("/auth/login", {email, password});
+            const {data} = await api.post("/auth/login", {email: cleanEmail, password});
             localStorage.setItem("token", data.token);
             sessionStorage.setItem("showWelcome", "1");
             setAuth(data.token);
@@ -44,8 +51,8 @@ export default function Login() {
             <div className="card">   
                 <div className="brand">
                     <img src={logo} alt="logo" className='logo-img'/>
-                    <h2>To-Do App</h2>
-                    <p className="muted">Organiza tus tareas de manera eficiente</p>
+                    <h2>Organize</h2>
+                    <p className="muted">Organiza tus tareas con calma y claridad</p>
                 </div>
                 <form className="form" onSubmit={onSubmit}>
                     <label> Correo electrónico </label>
@@ -54,6 +61,7 @@ export default function Login() {
                         placeholder="Ingresa tu correo electrónico"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
+                        autoComplete="email"
                         required
                     />
                     <label>Contraseña</label>
@@ -63,6 +71,7 @@ export default function Login() {
                         placeholder="••••••••"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
+                        autoComplete="current-password"
                         required
                         />
                     <button
@@ -70,6 +79,7 @@ export default function Login() {
                         className="btn ghost password-toggle"
                         onClick={() => setShow((s) => !s)}
                         aria-label="Mostrar/ocultar contraseña"
+                        aria-pressed={show}
                         >
                             {show ? "Ocultar" : "Mostrar"}
                         </button>

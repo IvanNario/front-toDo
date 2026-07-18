@@ -1,11 +1,67 @@
 import type { LocalTask, TaskCollaborator, TaskPermission, TaskTag, TaskType, TaskUser } from "./offline/db";
 
-export const TAG_COLORS = ["#ff721f", "#345b45", "#f4a261", "#7c9a62"];
+export const DEFAULT_TAG_COLOR = "#b6b09f";
+export const TASK_LIMITS = {
+  titleMin: 3,
+  titleMax: 80,
+  descriptionMax: 500,
+  tagNameMin: 2,
+  tagNameMax: 24,
+  tagsMax: 6,
+};
 
 export const isLocalId = (id: string) => !/^[a-f0-9]{24}$/i.test(id);
 export const now = () => Number(new Date());
 
 export type TaskPatch = Partial<Pick<LocalTask, "title" | "description" | "status" | "tags" | "type">>;
+
+export function normalizeTagColor(value: unknown) {
+  const color = String(value ?? "").trim().toLowerCase();
+  if (/^#[0-9a-f]{6}$/.test(color)) return color;
+  if (/^#[0-9a-f]{3}$/.test(color)) {
+    const [, r, g, b] = color;
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  return DEFAULT_TAG_COLOR;
+}
+
+export function cleanTaskText(value: unknown, maxLength: number) {
+  const safeText = Array.from(String(value ?? ""), (char) => {
+    const code = char.charCodeAt(0);
+    return (code < 32 && code !== 10 && code !== 13) || code === 127 ? " " : char;
+  }).join("");
+
+  return safeText
+    .replace(/[ \t]+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+export function validateTaskDraft(title: string, description: string, tags: TaskTag[]) {
+  const cleanTitle = cleanTaskText(title, TASK_LIMITS.titleMax);
+  const cleanDescription = cleanTaskText(description, TASK_LIMITS.descriptionMax);
+
+  if (cleanTitle.length < TASK_LIMITS.titleMin) {
+    return `El titulo debe tener al menos ${TASK_LIMITS.titleMin} caracteres.`;
+  }
+
+  if (cleanDescription.length > TASK_LIMITS.descriptionMax) {
+    return `La descripcion no puede superar ${TASK_LIMITS.descriptionMax} caracteres.`;
+  }
+
+  if (tags.length > TASK_LIMITS.tagsMax) {
+    return `Solo puedes agregar hasta ${TASK_LIMITS.tagsMax} etiquetas.`;
+  }
+
+  for (const tag of tags) {
+    const name = cleanTaskText(tag.name, TASK_LIMITS.tagNameMax);
+    if (name.length < TASK_LIMITS.tagNameMin) {
+      return `Cada etiqueta debe tener al menos ${TASK_LIMITS.tagNameMin} caracteres.`;
+    }
+  }
+
+  return "";
+}
 
 function normalizeUser(value: unknown): TaskUser | string | undefined {
   if (typeof value === "string") return value;
@@ -50,12 +106,12 @@ export function normalizeTags(value: unknown): TaskTag[] {
         : {};
 
       return {
-        name: String(tag.name ?? "").trim().slice(0, 24),
-        color: TAG_COLORS.includes(String(tag.color)) ? String(tag.color) : TAG_COLORS[0],
+        name: cleanTaskText(tag.name, TASK_LIMITS.tagNameMax),
+        color: normalizeTagColor(tag.color),
       };
     })
     .filter((tag) => tag.name)
-    .slice(0, 6);
+    .slice(0, TASK_LIMITS.tagsMax);
 }
 
 export function normalizeTask(value: unknown): LocalTask {
@@ -76,8 +132,8 @@ export function normalizeTask(value: unknown): LocalTask {
 
   return {
     _id: String(x._id ?? x.id ?? crypto.randomUUID()),
-    title: String(x.title ?? "(sin titulo)"),
-    description: typeof x.description === "string" ? x.description : "",
+    title: cleanTaskText(x.title ?? "(sin titulo)", TASK_LIMITS.titleMax),
+    description: typeof x.description === "string" ? cleanTaskText(x.description, TASK_LIMITS.descriptionMax) : "",
     status:
       status === "Completada" ||
       status === "En Progreso" ||
