@@ -581,6 +581,7 @@ export default function Dashboard() {
               <input value={tagName} onChange={(event) => setTagName(event.target.value)} placeholder="Etiqueta" maxLength={TASK_LIMITS.tagNameMax} />
               <div className="color-picker" aria-label="Color de etiqueta">
                 <span className="color-preview" style={{ backgroundColor: normalizeTagColor(tagColor) }} aria-hidden="true" />
+                <span className="color-picker-label">Color etiqueta</span>
                 <input
                   className="color-input"
                   type="color"

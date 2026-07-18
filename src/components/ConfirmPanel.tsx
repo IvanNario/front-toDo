@@ -24,20 +24,22 @@ export default function ConfirmPanel({
   if (!open) return null;
 
   return (
-    <aside className={`confirm-panel ${tone}`} role="dialog" aria-live="polite" aria-label={title}>
-      <div>
-        <span className="label">Confirmacion</span>
-        <h2>{title}</h2>
-        <p>{message}</p>
-      </div>
-      <div className="button-row">
-        <button className="btn ghost" type="button" onClick={onCancel} disabled={busy}>
-          {cancelText}
-        </button>
-        <button className={`btn ${tone === "danger" ? "danger" : "primary"}`} type="button" onClick={onConfirm} disabled={busy}>
-          {busy ? "Procesando" : confirmText}
-        </button>
-      </div>
-    </aside>
+    <div className="confirm-layer">
+      <aside className={`confirm-panel ${tone}`} role="dialog" aria-live="polite" aria-label={title}>
+        <div>
+          <span className="label">Confirmacion</span>
+          <h2>{title}</h2>
+          <p>{message}</p>
+        </div>
+        <div className="button-row">
+          <button className="btn ghost" type="button" onClick={onCancel} disabled={busy}>
+            {cancelText}
+          </button>
+          <button className={`btn ${tone === "danger" ? "danger" : "primary"}`} type="button" onClick={onConfirm} disabled={busy}>
+            {busy ? "Procesando" : confirmText}
+          </button>
+        </div>
+      </aside>
+    </div>
   );
 }
